@@ -1,0 +1,384 @@
+From aec7aac70ee1a7b270e671d9cb284fc07fd89bc1 Mon Sep 17 00:00:00 2001
+From: Peter Dinda <pdinda@northwestern.edu>
+Date: Tue, 7 Feb 2017 19:26:35 -0600
+Subject: [PATCH] First pass at an isolated core framework with basic "turn off
+ interrupts and go into no-fill cache mode" implementation
+
+See comments in include/nautilus/isocore.h,
+src/nautilus/isocore.c, and src/asm/isocore_lowlevel.h
+---
+ Kconfig                    | 19 ++++++++++
+ include/nautilus/isocore.h | 29 +++++++++++++++
+ src/asm/Makefile           |  4 ++
+ src/asm/isocore_lowlevel.S | 80 ++++++++++++++++++++++++++++++++++++++++
+ src/nautilus/Makefile      |  4 +-
+ src/nautilus/isocore.c     | 91 ++++++++++++++++++++++++++++++++++++++++++++++
+ src/nautilus/shell.c       | 41 ++++++++++++++++++++-
+ 7 files changed, 266 insertions(+), 2 deletions(-)
+ create mode 100644 include/nautilus/isocore.h
+ create mode 100644 src/asm/isocore_lowlevel.S
+ create mode 100644 src/nautilus/isocore.c
+
+diff --git a/Kconfig b/Kconfig
+index 385cbba..65ea610 100644
+--- a/Kconfig
++++ b/Kconfig
+@@ -345,6 +345,7 @@ config VIRTUAL_CONSOLE_SERIAL_MIRROR_ALL
+ 
+     endchoice
+   endmenu
++
+ config REAL_MODE_INTERFACE
+    bool "Enable the Long->Real interface"
+    default n
+@@ -368,6 +369,24 @@ config REAL_MODE_INTERFACE_SEGMENT
+       The first 32K is reserved for the trampoline
+       code and data. The second 32K can be used by
+       code invoking real mode interrupts
++
++
++config ISOCORE
++   bool "Enable Isolated Core Execution"
++   default n
++   help
++      Allows us to dedicate a core to the
++      execution of a function without any
++      interference from other cores
++
++config DEBUG_ISOCORE
++   bool "Debug Isolated Core Execution"
++   default n
++   depends on ISOCORE
++   help
++      Adds debugging output for isolated core execution
++      The low-level code does not have debugging output
++   
+ endmenu
+ 
+ menu "AeroKernel Performance Optimizations"
+diff --git a/include/nautilus/isocore.h b/include/nautilus/isocore.h
+new file mode 100644
+index 0000000..ce89aff
+--- /dev/null
++++ b/include/nautilus/isocore.h
+@@ -0,0 +1,29 @@
++#ifndef _ISOCORE
++#define _ISOCORE
++
++/*
++  Convert this core into an isolated core
++  Execution begins in a *copy* of the code
++  with a distinct stack.
++
++  Unless there is an error in startup, the
++  nk_isolate() function will never return. 
++  Also, the core will never again take
++  another interrupt.
++
++  codesize+stacksize must be smaller than
++  the cache in which will be isolated
++
++  The code must be position-independent, since
++  we will relocate it.   If the code touches
++  any global variable or the heap, isolation
++  bets are off.
++
++*/
++
++int nk_isolate(void (*code)(void *arg),
++	       uint64_t codesize,
++	       uint64_t stacksize,
++	       void     *arg);
++
++#endif
+diff --git a/src/asm/Makefile b/src/asm/Makefile
+index 28f5818..412fea6 100644
+--- a/src/asm/Makefile
++++ b/src/asm/Makefile
+@@ -15,3 +15,7 @@ endif
+ ifdef NAUT_CONFIG_REAL_MODE_INTERFACE
+ 	obj-y += realmode.o
+ endif
++
++ifdef NAUT_CONFIG_ISOCORE
++	obj-y += isocore_lowlevel.o
++endif
+diff --git a/src/asm/isocore_lowlevel.S b/src/asm/isocore_lowlevel.S
+new file mode 100644
+index 0000000..2d4863a
+--- /dev/null
++++ b/src/asm/isocore_lowlevel.S
+@@ -0,0 +1,80 @@
++/*
++	On entry, we have:
++
++	rdi - capsule starting address
++	rsi - capsule size in bytes
++	rdx - entry point / stack start
++	rcx - argument to drop into rdi at entry
++
++	This should really be a stub that we prepend to
++	the user's code... 
++*/
++
++.global _nk_isolate_entry
++_nk_isolate_entry:
++	// Interrupts off
++	cli
++	// at this point we cannot be interrupted
++	// by an interrupt or IPI, except (perhaps) INIT/SIPI
++	// We can be interrupted by an NMI or SMI
++	// If we are top of a VMM, the VMM still has full control
++
++	// MTRR manipulation would happen here
++	// I'm assuming that the capsule is already cacheable
++	// according to MTRR / PAT so skipping this
++
++	// flush cache
++	wbinvd
++	invd
++
++	// ensure cache is enabled
++	movq %cr0, %rax
++	andq $~(0x3<<29), %rax  // set CD and NWT to zero
++	movq %rax, %cr0
++
++	// stash our args as we will use their regs now
++	pushq %rdi
++	pushq %rsi
++	pushq %rdx
++	pushq %rcx
++
++	// now fault the capsule into cache
++	// we assume it fits...
++	// also capsule must be a nonzero-multiple of 8 bytes long
++	// note this read loop is also burning through icache...
++	// which looks mighty suspicious
++read_loop:	
++	movq (%rdi), %rax // read and throw away
++	addq $8, %rdi
++	subq $8, %rsi
++	jne read_loop
++
++	// Now the capsule should be in the cache
++
++	// turn off cache (put into no-fill mode)
++	orq $(0x3<<29), %rax  // set CD and NWT to one
++	movq %rax, %cr0
++	
++	// restore to state at call
++	popq %rcx
++	popq %rdx
++	popq %rsi
++	popq %rdi
++	
++	// set up our argument
++	movq %rcx, %rdi
++	
++	// switch to our isolated stack
++	movq %rdx, %rsp
++
++	// jump into our isolated code
++	jmp *%rdx
++
++	// we should never return from that.... 
++
++	movq $-1, %rax
++	
++	retq
++
++	
++
+diff --git a/src/nautilus/Makefile b/src/nautilus/Makefile
+index 318052d..6605c54 100644
+--- a/src/nautilus/Makefile
++++ b/src/nautilus/Makefile
+@@ -40,7 +40,7 @@ obj-y += \
+ 	netdev.o \
+         fs.o \
+         shell.o \
+-		fprintk.o 
++	fprintk.o \
+ 
+ obj-$(NAUT_CONFIG_PROFILE) += instrument.o
+ obj-$(NAUT_CONFIG_XEON_PHI) += sfi.o
+@@ -49,4 +49,6 @@ obj-$(NAUT_CONFIG_PALACIOS) += vmm.o
+ 
+ obj-$(NAUT_CONFIG_REAL_MODE_INTERFACE) += realmode.o
+ 
++obj-$(NAUT_CONFIG_ISOCORE) += isocore.o
++
+ 
+diff --git a/src/nautilus/isocore.c b/src/nautilus/isocore.c
+new file mode 100644
+index 0000000..51b1ea9
+--- /dev/null
++++ b/src/nautilus/isocore.c
+@@ -0,0 +1,91 @@
++/* 
++ */
++
++#include <nautilus/nautilus.h>
++
++#ifndef NAUT_CONFIG_DEBUG_ISOCORE
++#undef DEBUG_PRINT
++#define DEBUG_PRINT(fmt, args...) 
++#endif
++
++#define ERROR(fmt, args...) ERROR_PRINT("isocore: " fmt, ##args)
++#define DEBUG(fmt, args...) DEBUG_PRINT("isocore: " fmt, ##args)
++#define INFO(fmt, args...) INFO_PRINT("isocore: " fmt, ##args)
++
++#define FLOOR_DIV(x,y) ((x)/(y))
++#define CEIL_DIV(x,y)  (((x)/(y)) + !!((x)%(y)))
++#define DIVIDES(x,y) (((x)%(y))==0)
++#define MAX(x,y) ((x)>(y) ? (x) : (y))
++#define MIN(x,y) ((x)<(y) ? (x) : (y))
++
++int nk_isolate(void (*code)(void *arg),
++	       uint64_t codesize,
++	       uint64_t stacksize,
++	       void     *arg)
++{
++
++    //DEBUG("nk_isolate(code=%p, codesize=%lu\n",code, codesize);
++    //DEBUG("           stacksize=%lu, arg=%p\n", stacksize, arg);
++
++    // build a code+stack segment that looks like this:
++    //
++    // CODE
++    // ----- <- page boundary
++    // STACK
++    //
++    // both CODE and STACK are an integral number of 
++    // pages long
++    //
++    // Note that we don't really need page alignment for
++    // this - I'm just doing it for now to make sure
++    // we have cache line alignment for everything, regardless of machine
++
++    uint64_t code_pages = CEIL_DIV(codesize,PAGE_SIZE_4KB);
++    uint64_t stack_pages = CEIL_DIV(stacksize,PAGE_SIZE_4KB);
++    uint64_t total_pages = code_pages+stack_pages;
++
++    DEBUG("Allocating %lu code pages and %lu stack pages\n",
++	  code_pages,stack_pages);
++
++    // malloc will align to next power of 2 pages...
++    void *capsule = malloc(total_pages*PAGE_SIZE_4KB);
++    
++    if (!capsule) { 
++	ERROR("Unable to allocate capsule\n");
++	return -1;
++    }
++
++    DEBUG("Capsule allocated at %p\n",capsule);
++
++    // clear code and stack of the capsule
++    memset(capsule,0,total_pages*PAGE_SIZE_4KB);
++
++    // copy the code into the capsule
++    memcpy(capsule+stack_pages*PAGE_SIZE_4KB,
++	   code,
++	   codesize);
++
++    //nk_dump_mem(capsule+stack_pages*PAGE_SIZE_4KB, codesize);
++
++    // now transfer to the low-level code to
++    // effect isolation
++
++    extern int _nk_isolate_entry(void *,   // where capsule begins
++				 uint64_t, // size of capsule
++				 void *,   // entry point/stack start
++				 void *);  // what goes into rdi
++
++    DEBUG("Launching low-level capsule code, capsule=%p, size=%lu, entry=%p, rdi=%p\n", capsule, total_pages*PAGE_SIZE_4KB, capsule+stack_pages*PAGE_SIZE_4KB, arg);
++
++    _nk_isolate_entry(capsule,
++		      total_pages*PAGE_SIZE_4KB, 
++		      capsule+stack_pages*PAGE_SIZE_4KB, 
++		      arg);
++
++    // this should never return
++    
++    ERROR("The impossible has happened - _nk_isolate_entry returned!\n");
++    return -1;
++}
++    
++    
+diff --git a/src/nautilus/shell.c b/src/nautilus/shell.c
+index c169133..606f5d2 100644
+--- a/src/nautilus/shell.c
++++ b/src/nautilus/shell.c
+@@ -42,6 +42,10 @@
+ #include <nautilus/realmode.h>
+ #endif
+ 
++#ifdef NAUT_CONFIG_ISOCORE
++#include <nautilus/isocore.h>
++#endif
++
+ #define MAX_CMD 80
+ 
+ struct burner_args {
+@@ -474,6 +478,33 @@ static int handle_benchmarks(char * buf)
+     return 0;
+ }
+ 
++#ifdef NAUT_CONFIG_ISOCORE
++
++static void isotest(void *arg)
++{
++    // note trying to do anything in here with NK
++    // features, even a print, is unlikely to work due to
++    // relocation, interrupts off, etc.   
++    // serial_putchar('H'); serial_putchar('I');
++    while (1) { }  // does actually get here in testing
++}
++
++static int handle_isotest(char *buf)
++{
++    void (*code)(void*) = isotest;
++    uint64_t codesize = PAGE_SIZE_4KB; // we are making pretend here
++    uint64_t stacksize = PAGE_SIZE_4KB;
++    void *arg = (void*)0xdeadbeef;
++
++    return nk_isolate(code, 
++		      codesize,
++		      stacksize,
++		      arg);
++}
++
++
++#endif
++
+ static int handle_cmd(char *buf, int n)
+ {
+   char name[MAX_CMD];
+@@ -503,6 +534,13 @@ static int handle_cmd(char *buf, int n)
+     return 0;
+   }
+ #endif
++
++#ifdef NAUT_CONFIG_ISOCORE
++  if (!strncasecmp(buf,"isotest",4)) { 
++    handle_isotest(buf);
++    return 0;
++  }
++#endif
+   
+   if (!strncasecmp(buf,"help",4)) { 
+     nk_vc_printf("help\nexit\nvcs\ncores [n]\ntime [n]\nthreads [n]\n");
+@@ -517,7 +555,8 @@ static int handle_cmd(char *buf, int n)
+     nk_vc_printf("ipitest type (oneway | roundtrip | broadcast) trials [-f <filename>] [-s <src_id> | all] [-d <dst_id> | all]\n");
+     nk_vc_printf("bench\n");
+     nk_vc_printf("blktest dev r|w start count\n");
+-    nk_vc_printf("attach blkdev fstype fsname\n");
++    nk_vc_printf("blktest dev r|w start count\n");
++    nk_vc_printf("isotest\n");
+     nk_vc_printf("vm name [embedded image]\n");
+     return 0;
+   }
+-- 
+1.9.1
+

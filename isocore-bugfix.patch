@@ -1,0 +1,58 @@
+From 4b9d75ba31c4fea48ecd8b61d0328d20d7c35277 Mon Sep 17 00:00:00 2001
+From: Peter Dinda <pdinda@northwestern.edu>
+Date: Wed, 8 Feb 2017 13:31:49 -0600
+Subject: [PATCH] isocore bug fix
+
+---
+ src/asm/isocore_lowlevel.S | 1 +
+ src/nautilus/isocore.c     | 4 ++--
+ src/nautilus/shell.c       | 6 +++++-
+ 3 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/src/asm/isocore_lowlevel.S b/src/asm/isocore_lowlevel.S
+index 2d4863a..e0dd9e2 100644
+--- a/src/asm/isocore_lowlevel.S
++++ b/src/asm/isocore_lowlevel.S
+@@ -52,6 +52,7 @@ read_loop:
+ 	// Now the capsule should be in the cache
+ 
+ 	// turn off cache (put into no-fill mode)
++	movq %cr0, %rax
+ 	orq $(0x3<<29), %rax  // set CD and NWT to one
+ 	movq %rax, %cr0
+ 	
+diff --git a/src/nautilus/isocore.c b/src/nautilus/isocore.c
+index 51b1ea9..20ac229 100644
+--- a/src/nautilus/isocore.c
++++ b/src/nautilus/isocore.c
+@@ -24,8 +24,8 @@ int nk_isolate(void (*code)(void *arg),
+ 	       void     *arg)
+ {
+ 
+-    //DEBUG("nk_isolate(code=%p, codesize=%lu\n",code, codesize);
+-    //DEBUG("           stacksize=%lu, arg=%p\n", stacksize, arg);
++    DEBUG("nk_isolate(code=%p, codesize=%lu\n",code, codesize);
++    DEBUG("           stacksize=%lu, arg=%p\n", stacksize, arg);
+ 
+     // build a code+stack segment that looks like this:
+     //
+diff --git a/src/nautilus/shell.c b/src/nautilus/shell.c
+index 606f5d2..35b36f9 100644
+--- a/src/nautilus/shell.c
++++ b/src/nautilus/shell.c
+@@ -485,7 +485,11 @@ static void isotest(void *arg)
+     // note trying to do anything in here with NK
+     // features, even a print, is unlikely to work due to
+     // relocation, interrupts off, etc.   
+-    // serial_putchar('H'); serial_putchar('I');
++    //serial_print("Hello from isocore, my arg is %p\n", arg);
++    serial_putchar('H');
++    serial_putchar('I');
++    serial_putchar('!');
++    serial_putchar('\n');
+     while (1) { }  // does actually get here in testing
+ }
+ 
+-- 
+1.9.1
+
