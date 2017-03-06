@@ -515,6 +515,31 @@ static void isotest(void *arg)
 	}
 }
 
+static void isotest2(void *arg)
+{
+    // note trying to do anything in here with NK
+    // features, even a print, is unlikely to work due to
+    // relocation, interrupts off, etc.   
+    //serial_print("Hello from isocore, my arg is %p\n", arg);
+    //while (1) {
+	volatile int target = 0xDEADBE42;
+	uint64_t addr = 0x127000;
+	uint64_t addr2 = 0x116FE4;
+	*(uint8_t*)addr = 0x48;
+	*(uint8_t*)addr2 = 0x46;
+//	}  // does actually get here in testing
+
+	while (1) {
+		target = (target + 1) & 0xFF;
+		serial_putchar((char)target & 0xFF);
+		serial_putchar(*(uint8_t*)addr2 & 0xFF);
+		serial_putchar('\n');
+//		target -= 1;
+		asm volatile ("pause");
+		//halt instruction: asm volatile ("hlt");
+	}
+}
+
 static int handle_isotest(char *buf)
 {
     void (*code)(void*) = isotest;
