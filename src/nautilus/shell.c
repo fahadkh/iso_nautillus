@@ -42,7 +42,13 @@
 #include <nautilus/realmode.h>
 #endif
 
+#ifdef NAUT_CONFIG_ISOCORE
+#include <nautilus/isocore.h>
+#endif
+
 #define MAX_CMD 80
+
+#define TARGET_ADDR
 
 struct burner_args {
     struct nk_virtual_console *vc;
@@ -465,14 +471,76 @@ static int handle_attach(char * buf)
     }
 }
 
+extern void* capsule;
+void *capsule_stack_start;
+static int handle_printcap(char * buf) 
+{
+	nk_vc_printf("Capsule at %p\n", capsule);
+	nk_vc_printf("Stack at %p\n", capsule_stack_start);
+	return 0;
+}
+
 static int handle_benchmarks(char * buf)
 {
-    extern void run_benchmarks();
+    //extern void run_benchmarks();
     
-    run_benchmarks();
+    //run_benchmarks();
 
     return 0;
 }
+
+#ifdef NAUT_CONFIG_ISOCORE
+static void isotest(void *arg)
+{
+    // note trying to do anything in here with NK
+    // features, even a print, is unlikely to work due to
+    // relocation, interrupts off, etc.   
+    //serial_print("Hello from isocore, my arg is %p\n", arg);
+    //while (1) {
+	volatile int target = 0xDEADBE42;
+	uint64_t addr = 0x127000;
+	uint64_t addr2 = 0x117016;
+	*(uint8_t*)addr = 0x48;
+	*(uint8_t*)addr2 = 0x46;
+//	}  // does actually get here in testing
+
+	while (1) {
+		target += 1;
+		serial_putchar((char)target & 0xFF);
+		serial_putchar(*(uint8_t*)addr2 & 0xFF);
+		serial_putchar('\n');
+		target -= 1;
+		asm volatile ("pause");
+		//halt instruction: asm volatile ("hlt");
+	}
+}
+
+static int handle_isotest(char *buf)
+{
+    void (*code)(void*) = isotest;
+    uint64_t codesize = PAGE_SIZE_4KB; // we are making pretend here
+    uint64_t stacksize = PAGE_SIZE_4KB;
+    void *arg = (void*)0xdeadbeef;
+
+    nk_isolate(code, 
+			codesize,
+		    stacksize,
+		    arg);
+
+	serial_print("Should not return");
+
+	return 0;
+}
+
+static int handle_setup_isotest(char *buf) 
+{
+	nk_launch_shell("attack-shell", 0);
+	nk_launch_shell("iso-shell", 1);
+	return 0;
+}
+
+
+#endif
 
 static int handle_cmd(char *buf, int n)
 {
@@ -503,6 +571,23 @@ static int handle_cmd(char *buf, int n)
     return 0;
   }
 #endif
+
+#ifdef NAUT_CONFIG_ISOCORE
+  if (!strncasecmp(buf,"isotest",4)) { 
+    handle_isotest(buf);
+    return 0;
+  }
+#endif
+
+  if (!strncasecmp(buf, "setup_isotest", 6)) {
+  	handle_setup_isotest(buf);
+	return 0;
+  }
+
+  if (!strncasecmp(buf, "print_cap", 7)) {
+	handle_printcap(buf);
+	return 0;
+  }
   
   if (!strncasecmp(buf,"help",4)) { 
     nk_vc_printf("help\nexit\nvcs\ncores [n]\ntime [n]\nthreads [n]\n");
@@ -517,7 +602,8 @@ static int handle_cmd(char *buf, int n)
     nk_vc_printf("ipitest type (oneway | roundtrip | broadcast) trials [-f <filename>] [-s <src_id> | all] [-d <dst_id> | all]\n");
     nk_vc_printf("bench\n");
     nk_vc_printf("blktest dev r|w start count\n");
-    nk_vc_printf("attach blkdev fstype fsname\n");
+    nk_vc_printf("blktest dev r|w start count\n");
+    nk_vc_printf("isotest\n");
     nk_vc_printf("vm name [embedded image]\n");
     return 0;
   }
@@ -822,28 +908,27 @@ static void shell(void *in, void **out)
     ERROR_PRINT("Cannot bind virtual console for shell\n");
     return;
   }
-   
-  nk_switch_to_vc(vc);
   
+  nk_switch_to_vc(vc);
   nk_vc_clear(0x9f);
    
   while (1) {  
-    nk_vc_printf("%s> ", (char*)in);
-    nk_vc_gets(buf,MAX_CMD,1);
+   	nk_vc_printf("%s> ", (char*)in);
+   	nk_vc_gets(buf,MAX_CMD,1);
 
     if (buf[0]==0 && !first) { 
 	// continue; // turn off autorepeat for now
 	if (handle_cmd(lastbuf,MAX_CMD)) { 
 	    break;
 	}
-    } else {
+   	} else {
 	if (handle_cmd(buf,MAX_CMD)) {
 	    break;
 	}
 	memcpy(lastbuf,buf,MAX_CMD);
 	first=0;
-
-    }
+	
+   	}
 	       
   }
 
@@ -852,7 +937,6 @@ static void shell(void *in, void **out)
   nk_release_vc(get_cur_thread());
 
   // exit thread
-  
 }
 
 nk_thread_id_t nk_launch_shell(char *name, int cpu)
@@ -866,7 +950,17 @@ nk_thread_id_t nk_launch_shell(char *name, int cpu)
 
   strncpy(n,name,32);
   n[31]=0;
-  
+  /* 
+  if(!strncasecmp(name, "iso-shell", 8)) {
+  	if (nk_thread_start(handle_isotest, (void*)n, 0 ,1, PAGE_SIZE_4KB, &tid, cpu)) {
+		free(n);
+		return 0;
+	} else {
+      INFO_PRINT("Shell %s launched on cpu %d as %p\n",name,cpu,tid);
+	  return tid;
+	}
+  }
+*/
   if (nk_thread_start(shell, (void*)n, 0, 1, PAGE_SIZE_4KB, &tid, cpu)) { 
       free(n);
       return 0;
