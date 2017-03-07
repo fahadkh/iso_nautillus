@@ -505,7 +505,7 @@ static void isotest(void *arg)
 //	}  // does actually get here in testing
 
 	while (1) {
-		target += 1;
+		*(uint8_t*)addr2 += 1;
 		serial_putchar((char)target & 0xFF);
 		serial_putchar(*(uint8_t*)addr2 & 0xFF);
 		serial_putchar('\n');
