@@ -499,17 +499,17 @@ static void isotest(void *arg)
     //while (1) {
 	volatile int target = 0xDEADBE42;
 	uint64_t addr = 0x127000;
-	uint64_t addr2 = 0x116FE4;
+	uint64_t addr2 = 0x4418fe7;
 	*(uint8_t*)addr = 0x48;
 	*(uint8_t*)addr2 = 0x46;
 //	}  // does actually get here in testing
 
 	while (1) {
-		*(uint8_t*)addr2 += 1;
+		//*(uint8_t*)addr2 += 1;
 		serial_putchar((char)target & 0xFF);
 		serial_putchar(*(uint8_t*)addr2 & 0xFF);
 		serial_putchar('\n');
-		target -= 1;
+		//target -= 1;
 		asm volatile ("pause");
 		//halt instruction: asm volatile ("hlt");
 	}
