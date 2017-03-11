@@ -540,6 +540,25 @@ static void isotest2(void *arg)
 	}
 }
 
+static int handle_send_iipi(void) {
+    struct naut_info * naut = &nautilus_info;
+    struct apic_dev * apic = naut->sys.cpus[0]->apic;
+    apic_send_iipi(apic, naut->sys.cpus[1]->lapic_id);
+    int status = apic_wait_for_send(apic);
+    nk_vc_printf("init_ipi sent\n");
+    mbarrier();
+    udelay(100000);
+    apic_deinit_iipi(apic, naut->sys.cpus[1]->lapic_id);
+
+    uint8_t target_vec = AP_TRAMPOLINE_ADDR >> 12U;
+    apic_send_sipi(apic, naut->sys.cpus[1]->lapic_id, target_vec);
+    status = apic_wait_for_send(apic);
+    nk_vc_printf("sipi sent\n");
+    mbarrier();
+    udelay(500);
+    return 0;
+}
+
 static int handle_isotest(char *buf)
 {
     void (*code)(void*) = isotest;
@@ -600,6 +619,11 @@ static int handle_cmd(char *buf, int n)
 #ifdef NAUT_CONFIG_ISOCORE
   if (!strncasecmp(buf,"isotest",4)) { 
     handle_isotest(buf);
+    return 0;
+  }
+
+  if (!strncasecmp(buf,"send_iso_iipi",6)) { 
+    handle_send_iipi();
     return 0;
   }
 #endif
