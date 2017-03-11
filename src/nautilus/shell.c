@@ -497,23 +497,20 @@ static void isotest(void *arg)
     // relocation, interrupts off, etc.   
     //serial_print("Hello from isocore, my arg is %p\n", arg);
     //while (1) {
+	nk_map_page_nocache(*(addr_t *)arg, 1/*flags*/, PAGE_SIZE_4KB);
 	volatile int target = 0xDEADBE42;
 	uint64_t addr = 0x127000;
-	uint64_t addr2 = 0x4418fe7;
-	*(uint8_t*)addr = 0x48;
+	uint64_t addr2 = 0x116fe4;
+//	*(uint8_t*)addr = 0x48;
 	*(uint8_t*)addr2 = 0x46;
 //	}  // does actually get here in testing
 
 	while (1) {
-		write_cr8(0xf);
-		//*(uint8_t*)addr2 += 1;
+		*(uint8_t*)addr2 += 1;
 		serial_putchar((char)target & 0xFF);
-		write_cr8(0xf);
 		serial_putchar(*(uint8_t*)addr2 & 0xFF);
-		write_cr8(0xf);
 		serial_putchar('\n');
-		write_cr8(0xf);
-		//target -= 1;
+		target -= 1;
 		asm volatile ("pause");
 		//halt instruction: asm volatile ("hlt");
 	}
@@ -526,6 +523,7 @@ static void isotest2(void *arg)
     // relocation, interrupts off, etc.   
     //serial_print("Hello from isocore, my arg is %p\n", arg);
     //while (1) {
+	nk_map_page_nocache(*(addr_t *)arg, 1/*flags*/, 1);
 	volatile int target = 0xDEADBE42;
 	uint64_t addr = 0x127000;
 	uint64_t addr2 = 0x116FE4;

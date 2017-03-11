@@ -83,7 +83,7 @@ int nk_isolate(void (*code)(void *arg),
     _nk_isolate_entry(capsule,
 		      total_pages*PAGE_SIZE_4KB, 
 		      capsule+stack_pages*PAGE_SIZE_4KB, 
-		      arg);
+		      capsule);//arg);
 
     // this should never return
     
