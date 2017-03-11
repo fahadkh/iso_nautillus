@@ -497,10 +497,11 @@ static void isotest(void *arg)
     // relocation, interrupts off, etc.   
     //serial_print("Hello from isocore, my arg is %p\n", arg);
     //while (1) {
+	nk_map_page_nocache(*(addr_t *)arg, 1/*flags*/, PAGE_SIZE_4KB);
 	volatile int target = 0xDEADBE42;
 	uint64_t addr = 0x127000;
-	//uint64_t addr2 = 0x4418fe4;
-	uint64_t addr2 = 0x116fe4;
+	uint64_t addr2 = 0x4418fe4;
+	//uint64_t addr2 = 0x116fe4;
 	//*(uint8_t*)addr = 0x48;
 	*(uint8_t*)addr2 = 0x46;
 //	}  // does actually get here in testing
@@ -523,6 +524,7 @@ static void isotest2(void *arg)
     // relocation, interrupts off, etc.   
     //serial_print("Hello from isocore, my arg is %p\n", arg);
     //while (1) {
+	nk_map_page_nocache(*(addr_t *)arg, 1/*flags*/, 1);
 	volatile int target = 0xDEADBE42;
 	uint64_t addr = 0x127000;
 	uint64_t addr2 = 0x116FE4;
