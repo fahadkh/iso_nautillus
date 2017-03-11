@@ -505,10 +505,14 @@ static void isotest(void *arg)
 //	}  // does actually get here in testing
 
 	while (1) {
+		write_cr8(0xf);
 		*(uint8_t*)addr2 += 1;
 		serial_putchar((char)target & 0xFF);
+		write_cr8(0xf);
 		serial_putchar(*(uint8_t*)addr2 & 0xFF);
+		write_cr8(0xf);
 		serial_putchar('\n');
+		write_cr8(0xf);
 		target -= 1;
 		asm volatile ("pause");
 		//halt instruction: asm volatile ("hlt");
