@@ -495,16 +495,18 @@ static void isotest(void *arg)
     // note trying to do anything in here with NK
     // features, even a print, is unlikely to work due to
     // relocation, interrupts off, etc.   
-    //serial_print("Hello from isocore, my arg is %p\n", arg);
-    //while (1) {
+	
+	//Modify PAT
 	nk_map_page_nocache(*(addr_t *)arg, 1/*flags*/, PAGE_SIZE_4KB);
+
+	//stack var
 	volatile int target = 0xDEADBE42;
+
+	//This is an address outside of the capsule
 	uint64_t addr = 0x127000;
+
+	//Fill this is with the address of the stack variable you want to print
 	uint64_t addr2 = 0x4418fe4;
-	//uint64_t addr2 = 0x116fe4;
-	//*(uint8_t*)addr = 0x48;
-//	*(uint8_t*)addr2 = 0x46;
-//	}  // does actually get here in testing
 
 	while (1) {
 //		*(uint8_t*)addr2 += 1;
@@ -522,28 +524,33 @@ static void isotest2(void *arg)
     // note trying to do anything in here with NK
     // features, even a print, is unlikely to work due to
     // relocation, interrupts off, etc.   
-    //serial_print("Hello from isocore, my arg is %p\n", arg);
-    //while (1) {
+	
 	nk_map_page_nocache(*(addr_t *)arg, 1/*flags*/, 1);
 	volatile int target = 0xDEADBE42;
+	
+	//address outside of the capsule
 	uint64_t addr = 0x127000;
-	uint64_t addr2 = 0x116FE4;
+
+	//fill in with address of stack variable you want to print.
+	uint64_t addr2 = 0x4418FE4;
+
+	//Perform writes. Will this invalidate cache lines?
 	*(uint8_t*)addr = 0x48;
 	*(uint8_t*)addr2 = 0x46;
-//	}  // does actually get here in testing
 
 	while (1) {
 		target = (target + 1) & 0xFF;
 		serial_putchar((char)target & 0xFF);
 		serial_putchar(*(uint8_t*)addr2 & 0xFF);
 		serial_putchar('\n');
-//		target -= 1;
 		asm volatile ("pause");
 		//halt instruction: asm volatile ("hlt");
 	}
 }
 
 static int handle_send_iipi(void) {
+
+	//used to send init IPI to isolated shell
     struct naut_info * naut = &nautilus_info;
     struct apic_dev * apic = naut->sys.cpus[0]->apic;
     apic_send_iipi(apic, naut->sys.cpus[1]->lapic_id);
