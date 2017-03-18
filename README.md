@@ -1,3 +1,7 @@
+# Isolated Core Extension to Nautilus
+
+Code run on the isolated core is available in src/nautilus/shell.c in the function isotest. isotest simply places a variable on the stack and reads it out. isotest2 is used to test writes. The shell commands poke, peek, and mem are used in the attack shell in an attempt to modify data within the isolated core. send_iso_iipi is a shell command introduced to send init IPIs to the isolated core. print_cap is used to print the address of the isolated core capsule. This address must be predetermined and included in the isotest function. setup_isotest is the command used to create the appropriate shells. 
+
 ```
 
     _   __               __   _  __                
